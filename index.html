@@ -1,0 +1,1198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Science Expo – ID Scanner & Attendance</title>
+    <meta name="description" content="Science Expo real-time ID card scanner and attendance dashboard with OCR, school-wise analytics, and PDF export.">
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Tesseract.js v5 OCR Engine -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <!-- jsPDF + AutoTable -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+
+    <style>
+        *, *::before, *::after { box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+            background: #0a0f1e;
+            color: #e2e8f0;
+            min-height: 100svh;
+        }
+
+        /* ── Animated Gradient Header ── */
+        .header-gradient {
+            background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
+            border-bottom: 1px solid rgba(99,102,241,0.25);
+        }
+
+        /* ── Glassmorphism Cards ── */
+        .glass-card {
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(99,102,241,0.15);
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, rgba(15,23,42,0.9) 0%, rgba(30,27,75,0.6) 100%);
+            border: 1px solid rgba(99,102,241,0.2);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .stat-card:hover { transform: translateY(-2px); box-shadow: 0 8px 32px rgba(99,102,241,0.15); }
+
+        /* ── Scanning Reticle ── */
+        @keyframes scanLine {
+            0%, 100% { top: 6px; opacity: 0.8; }
+            50% { top: calc(100% - 10px); opacity: 1; }
+        }
+        @keyframes reticlePulse {
+            0%, 100% { border-color: rgba(239,68,68,0.9); box-shadow: 0 0 16px rgba(239,68,68,0.3); }
+            50% { border-color: rgba(6,182,212,0.9); box-shadow: 0 0 20px rgba(6,182,212,0.35); }
+        }
+        .scan-line {
+            position: absolute;
+            left: 8px; right: 8px;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, #22d3ee, transparent);
+            animation: scanLine 2.4s ease-in-out infinite;
+        }
+        .reticle-box { animation: reticlePulse 3s ease-in-out infinite; }
+
+        /* Corner markers for reticle */
+        .corner { position: absolute; width: 18px; height: 18px; }
+        .corner-tl { top: 0; left: 0; border-top: 3px solid #22d3ee; border-left: 3px solid #22d3ee; border-radius: 3px 0 0 0; }
+        .corner-tr { top: 0; right: 0; border-top: 3px solid #22d3ee; border-right: 3px solid #22d3ee; border-radius: 0 3px 0 0; }
+        .corner-bl { bottom: 0; left: 0; border-bottom: 3px solid #22d3ee; border-left: 3px solid #22d3ee; border-radius: 0 0 0 3px; }
+        .corner-br { bottom: 0; right: 0; border-bottom: 3px solid #22d3ee; border-right: 3px solid #22d3ee; border-radius: 0 0 3px 0; }
+
+        /* ── Toast Animation ── */
+        @keyframes toastSlide {
+            from { opacity: 0; transform: translateY(12px) scale(0.97); }
+            to   { opacity: 1; transform: translateY(0)   scale(1); }
+        }
+        .toast-anim { animation: toastSlide 0.35s cubic-bezier(0.16,1,0.3,1) forwards; }
+
+        /* ── OCR Loader Pulse ── */
+        @keyframes ocrPulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .ocr-pulse { animation: ocrPulse 1.2s ease-in-out infinite; }
+
+        /* ── Form Input Focus ── */
+        .field-input {
+            background: rgba(2,6,23,0.8);
+            border: 1.5px solid rgba(71,85,105,0.7);
+            border-radius: 10px;
+            color: #f1f5f9;
+            font-size: 0.875rem;
+            width: 100%;
+            padding: 9px 14px;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            outline: none;
+            font-family: 'Inter', sans-serif;
+        }
+        .field-input:focus {
+            border-color: #6366f1;
+            box-shadow: 0 0 0 3px rgba(99,102,241,0.18);
+        }
+        .field-input::placeholder { color: #475569; }
+        .field-input.detected { border-color: rgba(16,185,129,0.6); }
+
+        /* ── Scrollbar ── */
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #4f46e5; }
+
+        /* ── Table Row Hover ── */
+        .table-row { transition: background 0.15s; }
+        .table-row:hover { background: rgba(99,102,241,0.07); }
+
+        /* ── OCR Line Item ── */
+        .ocr-line-item {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 4px 6px;
+            border-radius: 6px;
+            border: 1px solid transparent;
+            transition: all 0.15s;
+            gap: 6px;
+        }
+        .ocr-line-item:hover { background: rgba(15,23,42,0.8); border-color: rgba(71,85,105,0.4); }
+
+        /* ── Progress Bar ── */
+        .progress-bar {
+            height: 3px;
+            background: linear-gradient(90deg, #6366f1, #22d3ee);
+            border-radius: 2px;
+            transition: width 0.3s ease;
+        }
+
+        /* ── Status Dot ── */
+        .status-dot {
+            width: 6px; height: 6px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 4px;
+        }
+        .status-active { background: #10b981; box-shadow: 0 0 6px #10b981; }
+        .status-offline { background: #ef4444; }
+        .status-init { background: #f59e0b; }
+
+        /* ── Badge ── */
+        .badge-school { background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.25); color: #10b981; }
+        .badge-student { background: rgba(99,102,241,0.12); border: 1px solid rgba(99,102,241,0.25); color: #818cf8; }
+
+        /* ── Responsive ── */
+        @media (max-width: 640px) {
+            .header-title { font-size: 1rem; }
+            .stat-number { font-size: 1.75rem; }
+        }
+
+        /* ── Tab Active ── */
+        .tab-active { background: linear-gradient(135deg, #4f46e5, #6366f1); color: white; box-shadow: 0 4px 12px rgba(99,102,241,0.3); }
+        .tab-inactive { background: transparent; color: #94a3b8; }
+        .tab-inactive:hover { color: #e2e8f0; background: rgba(99,102,241,0.08); }
+    </style>
+</head>
+
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════
+     HEADER
+═══════════════════════════════════════════════════════════════ -->
+<header class="header-gradient sticky top-0 z-50 shadow-xl">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl flex items-center justify-center text-white text-lg"
+                 style="background: linear-gradient(135deg,#4f46e5,#6366f1); box-shadow:0 4px 16px rgba(99,102,241,0.4);">
+                <i class="fa-solid fa-id-card-clip"></i>
+            </div>
+            <div>
+                <h1 class="header-title text-lg font-extrabold text-white tracking-tight leading-none">
+                    EXPO SCANNER <span class="text-indigo-400">ULTRA</span>
+                </h1>
+                <p class="text-[11px] text-indigo-300/70 font-medium mt-0.5">Science Expo · ID OCR · Real-Time Attendance</p>
+            </div>
+        </div>
+
+        <!-- OCR Engine Status -->
+        <div id="engineStatus" class="hidden sm:flex items-center gap-1.5 text-[11px] font-semibold text-slate-400 px-3 py-1 rounded-full border border-slate-700/50 bg-slate-900/50">
+            <span class="status-dot status-init" id="engineDot"></span>
+            <span id="engineLabel">Initializing OCR…</span>
+        </div>
+
+        <div class="flex items-center gap-2">
+            <button onclick="exportToPDF()"
+                class="flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs text-white transition shadow-lg"
+                style="background:linear-gradient(135deg,#059669,#10b981);">
+                <i class="fa-solid fa-file-pdf"></i>
+                <span class="hidden sm:inline">Export PDF</span>
+            </button>
+            <button onclick="clearAllData()" title="Clear all records"
+                class="w-9 h-9 rounded-xl flex items-center justify-center transition text-rose-400 hover:text-white hover:bg-rose-600 border border-rose-500/30">
+                <i class="fa-solid fa-trash-can text-sm"></i>
+            </button>
+        </div>
+    </div>
+</header>
+
+<!-- ═══════════════════════════════════════════════════════════
+     MAIN
+═══════════════════════════════════════════════════════════════ -->
+<main class="max-w-7xl mx-auto px-4 py-5 space-y-5">
+
+    <!-- STAT CARDS -->
+    <div class="grid grid-cols-3 gap-3 sm:gap-4">
+        <div class="stat-card rounded-2xl p-4 flex items-center justify-between">
+            <div>
+                <p class="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Students</p>
+                <p class="stat-number text-3xl font-black text-indigo-400 mt-1 leading-none" id="statTotalStudents">0</p>
+            </div>
+            <div class="w-11 h-11 rounded-xl flex items-center justify-center text-lg text-indigo-400"
+                 style="background:rgba(99,102,241,0.12);">
+                <i class="fa-solid fa-users"></i>
+            </div>
+        </div>
+        <div class="stat-card rounded-2xl p-4 flex items-center justify-between">
+            <div>
+                <p class="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Schools</p>
+                <p class="stat-number text-3xl font-black text-cyan-400 mt-1 leading-none" id="statTotalSchools">0</p>
+            </div>
+            <div class="w-11 h-11 rounded-xl flex items-center justify-center text-lg text-cyan-400"
+                 style="background:rgba(6,182,212,0.12);">
+                <i class="fa-solid fa-school"></i>
+            </div>
+        </div>
+        <div class="stat-card rounded-2xl p-4 flex items-center justify-between overflow-hidden">
+            <div class="min-w-0">
+                <p class="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Top School</p>
+                <p class="text-xs font-bold text-amber-300 mt-1 truncate leading-tight" id="statTopSchool">—</p>
+            </div>
+            <div class="w-11 h-11 rounded-xl flex items-center justify-center text-lg text-amber-400 shrink-0 ml-2"
+                 style="background:rgba(245,158,11,0.12);">
+                <i class="fa-solid fa-trophy"></i>
+            </div>
+        </div>
+    </div>
+
+    <!-- MAIN GRID -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+
+        <!-- ══════════════════════════════════════
+             COLUMN 1: SCANNER + FORM
+        ══════════════════════════════════════════ -->
+        <div class="lg:col-span-5 space-y-4">
+            <div class="glass-card rounded-2xl p-5 space-y-4 shadow-2xl">
+
+                <!-- Camera Header -->
+                <div class="flex items-center justify-between">
+                    <h2 class="text-sm font-bold text-slate-200 uppercase tracking-widest flex items-center gap-2">
+                        <i class="fa-solid fa-camera text-indigo-400"></i>
+                        Live Scanner
+                    </h2>
+                    <div class="flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full border" id="cameraStatusBadge"
+                         style="background:rgba(245,158,11,0.12); border-color:rgba(245,158,11,0.3); color:#fbbf24;">
+                        <span class="status-dot status-init" id="camDot"></span>
+                        <span id="cameraStatus">INITIALIZING</span>
+                    </div>
+                </div>
+
+                <!-- Viewfinder -->
+                <div class="relative w-full rounded-xl overflow-hidden bg-black border border-slate-800"
+                     style="aspect-ratio:4/3;">
+                    <video id="videoFeed" autoplay playsinline muted
+                           class="w-full h-full object-cover"></video>
+                    <canvas id="processCanvas" class="hidden"></canvas>
+
+                    <!-- Reticle Overlay -->
+                    <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                        <div class="relative reticle-box rounded-lg border-2 border-dashed"
+                             style="width:86%; height:74%;">
+                            <!-- Corner markers -->
+                            <div class="corner corner-tl"></div>
+                            <div class="corner corner-tr"></div>
+                            <div class="corner corner-bl"></div>
+                            <div class="corner corner-br"></div>
+                            <!-- Scan line -->
+                            <div class="scan-line"></div>
+                            <!-- Labels -->
+                            <span class="absolute top-1 left-2 text-[8px] font-mono font-bold tracking-wider text-red-400 bg-black/80 px-1.5 py-0.5 rounded">
+                                ALIGN ID CARD HERE
+                            </span>
+                            <span class="absolute bottom-1 right-2 text-[8px] font-mono font-bold tracking-wider text-cyan-400 bg-black/80 px-1.5 py-0.5 rounded">
+                                OCR ENHANCED
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- OCR Processing Overlay -->
+                    <div id="ocrLoader" class="hidden absolute inset-0 z-20 flex flex-col items-center justify-center gap-3"
+                         style="background:rgba(2,6,23,0.92); backdrop-filter:blur(8px);">
+                        <div class="w-12 h-12 rounded-full flex items-center justify-center"
+                             style="background:rgba(99,102,241,0.15); border:2px solid rgba(99,102,241,0.4);">
+                            <i class="fa-solid fa-circle-notch fa-spin text-xl text-indigo-400"></i>
+                        </div>
+                        <div class="text-center space-y-1">
+                            <p class="text-xs font-bold tracking-widest text-cyan-300 uppercase ocr-pulse">Processing Image…</p>
+                            <div class="w-32 h-0.5 bg-slate-800 rounded-full mx-auto overflow-hidden">
+                                <div class="progress-bar w-3/4"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Scan Controls -->
+                <div class="grid grid-cols-2 gap-3">
+                    <button type="button" onclick="captureAndScan()"
+                        class="flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-xs uppercase tracking-wider text-white transition shadow-lg"
+                        style="background:linear-gradient(135deg,#4f46e5,#6366f1);"
+                        id="btnScan">
+                        <i class="fa-solid fa-camera-retro"></i>
+                        <span>Scan ID Card</span>
+                    </button>
+                    <label class="flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-xs uppercase tracking-wider text-slate-200 cursor-pointer transition border border-slate-700 hover:border-indigo-500/50 hover:bg-indigo-950/30"
+                           style="background:rgba(30,41,59,0.6);">
+                        <i class="fa-solid fa-upload text-indigo-400"></i>
+                        <span>Upload Image</span>
+                        <input type="file" id="filePicker" accept="image/*" class="hidden" onchange="handleManualUpload(event)">
+                    </label>
+                </div>
+
+                <!-- Attendance Form -->
+                <form id="attendanceForm" onsubmit="saveStudentRecord(event)"
+                      class="space-y-3 pt-3 border-t border-slate-700/60">
+
+                    <!-- Student Name -->
+                    <div>
+                        <div class="flex items-center justify-between mb-1.5">
+                            <label class="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                                <i class="fa-solid fa-user-graduate text-indigo-400 mr-1"></i>Student Name
+                            </label>
+                            <span id="nameTag" class="text-[10px] font-semibold font-mono"></span>
+                        </div>
+                        <input type="text" id="inputStudentName" required
+                               placeholder="e.g. S. PAVITHRA"
+                               class="field-input" autocomplete="off">
+                    </div>
+
+                    <!-- School Name -->
+                    <div>
+                        <div class="flex items-center justify-between mb-1.5">
+                            <label class="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                                <i class="fa-solid fa-school text-cyan-400 mr-1"></i>School Name
+                            </label>
+                            <span id="schoolTag" class="text-[10px] font-semibold font-mono"></span>
+                        </div>
+                        <input type="text" id="inputSchoolName" required
+                               placeholder="e.g. AMALORPAVAM HSS"
+                               class="field-input" autocomplete="off">
+                    </div>
+
+                    <!-- Standard / Section -->
+                    <div>
+                        <div class="flex items-center justify-between mb-1.5">
+                            <label class="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                                <i class="fa-solid fa-layer-group text-amber-400 mr-1"></i>Standard / Section
+                            </label>
+                            <span id="secTag" class="text-[10px] font-semibold font-mono"></span>
+                        </div>
+                        <input type="text" id="inputSection" required
+                               placeholder="e.g. 11-B"
+                               class="field-input" autocomplete="off">
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="grid grid-cols-2 gap-3 pt-1">
+                        <button type="button" onclick="resetForm()"
+                            class="py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider text-slate-300 transition border border-slate-700 hover:bg-slate-800">
+                            <i class="fa-solid fa-rotate-left mr-1"></i>Reset
+                        </button>
+                        <button type="submit"
+                            class="py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider text-white transition shadow-lg flex items-center justify-center gap-2"
+                            style="background:linear-gradient(135deg,#059669,#10b981);">
+                            <i class="fa-solid fa-floppy-disk"></i>
+                            <span>Save Entry</span>
+                        </button>
+                    </div>
+                </form>
+
+                <!-- Save Toast -->
+                <div id="schoolToast" class="hidden rounded-xl p-3 toast-anim"></div>
+
+                <!-- Raw OCR Text Inspector -->
+                <div class="border-t border-slate-700/40 pt-3">
+                    <button type="button" onclick="toggleOcrPanel()"
+                        class="w-full flex items-center justify-between text-[11px] text-slate-500 hover:text-indigo-300 font-semibold py-0.5 transition">
+                        <span class="flex items-center gap-1.5">
+                            <i class="fa-solid fa-bug text-indigo-400/70"></i>
+                            Raw OCR Inspector
+                        </span>
+                        <i id="ocrPanelIcon" class="fa-solid fa-chevron-down text-xs transition-transform duration-200"></i>
+                    </button>
+                    <div id="ocrPanel" class="hidden mt-2 rounded-xl p-3 border border-slate-800 space-y-1.5"
+                         style="background:rgba(2,6,23,0.7);">
+                        <p class="text-[10px] text-slate-500">Click <b>Name</b> / <b>School</b> / <b>Sec</b> to insert any line into the field.</p>
+                        <div id="ocrLinesList" class="max-h-44 overflow-y-auto space-y-0.5 font-mono text-[11px]">
+                            <span class="text-slate-600 italic">No scan yet.</span>
+                        </div>
+                    </div>
+                </div>
+
+            </div><!-- /glass-card -->
+        </div><!-- /col-1 -->
+
+        <!-- ══════════════════════════════════════
+             COLUMN 2: DASHBOARD
+        ══════════════════════════════════════════ -->
+        <div class="lg:col-span-7">
+            <div class="glass-card rounded-2xl p-5 shadow-2xl flex flex-col gap-4" style="min-height:520px;">
+
+                <!-- Dashboard Tabs -->
+                <div class="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-700/50">
+                    <div class="flex gap-1.5 p-1 rounded-xl" style="background:rgba(2,6,23,0.6); border:1px solid rgba(71,85,105,0.3);">
+                        <button id="tabBtnSchools" onclick="switchTab('schools')"
+                            class="tab-active py-1.5 px-3 rounded-lg font-bold text-xs uppercase tracking-wider transition flex items-center gap-2">
+                            <i class="fa-solid fa-school"></i>
+                            Schools&nbsp;<span class="badge-school px-1.5 py-0.5 rounded-md text-[10px] font-bold" id="badgeSchoolCount">0</span>
+                        </button>
+                        <button id="tabBtnStudents" onclick="switchTab('students')"
+                            class="tab-inactive py-1.5 px-3 rounded-lg font-bold text-xs uppercase tracking-wider transition flex items-center gap-2">
+                            <i class="fa-solid fa-users"></i>
+                            Students&nbsp;<span class="badge-student px-1.5 py-0.5 rounded-md text-[10px] font-bold" id="badgeStudentCount">0</span>
+                        </button>
+                    </div>
+                    <div class="relative flex-1 sm:flex-none">
+                        <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs"></i>
+                        <input type="text" id="tableSearch" oninput="filterLogs(event)"
+                               placeholder="Search name, school…"
+                               class="pl-8 pr-3 py-1.5 text-xs rounded-lg border border-slate-700 bg-slate-900 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 w-full sm:w-48 transition">
+                    </div>
+                </div>
+
+                <!-- TAB: Schools -->
+                <div id="tabSchools" class="flex-1 overflow-x-auto">
+                    <table class="w-full text-left text-xs border-separate" style="border-spacing:0;">
+                        <thead>
+                            <tr style="background:rgba(2,6,23,0.7);">
+                                <th class="p-3 text-slate-400 font-bold uppercase tracking-wider rounded-tl-lg">#</th>
+                                <th class="p-3 text-slate-400 font-bold uppercase tracking-wider">School Name</th>
+                                <th class="p-3 text-slate-400 font-bold uppercase tracking-wider text-right">Students</th>
+                                <th class="p-3 text-slate-400 font-bold uppercase tracking-wider text-right rounded-tr-lg">Share</th>
+                            </tr>
+                        </thead>
+                        <tbody id="schoolTableBody"></tbody>
+                    </table>
+                    <div id="emptySchoolMsg" class="hidden py-16 text-center">
+                        <i class="fa-solid fa-school text-4xl text-slate-700 mb-3 block"></i>
+                        <p class="text-slate-500 text-xs font-semibold">No school data yet. Scan an ID card to begin.</p>
+                    </div>
+                </div>
+
+                <!-- TAB: Students -->
+                <div id="tabStudents" class="hidden flex-1 overflow-x-auto">
+                    <table class="w-full text-left text-xs border-separate" style="border-spacing:0;">
+                        <thead>
+                            <tr style="background:rgba(2,6,23,0.7);">
+                                <th class="p-3 text-slate-400 font-bold uppercase tracking-wider rounded-tl-lg">#</th>
+                                <th class="p-3 text-slate-400 font-bold uppercase tracking-wider">Name</th>
+                                <th class="p-3 text-slate-400 font-bold uppercase tracking-wider">School</th>
+                                <th class="p-3 text-slate-400 font-bold uppercase tracking-wider">Sec.</th>
+                                <th class="p-3 text-slate-400 font-bold uppercase tracking-wider">Time</th>
+                                <th class="p-3 text-slate-400 font-bold uppercase tracking-wider text-center rounded-tr-lg">Del</th>
+                            </tr>
+                        </thead>
+                        <tbody id="studentTableBody"></tbody>
+                    </table>
+                    <div id="emptyStudentMsg" class="hidden py-16 text-center">
+                        <i class="fa-solid fa-user-slash text-4xl text-slate-700 mb-3 block"></i>
+                        <p class="text-slate-500 text-xs font-semibold">No students logged yet.</p>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+    </div><!-- /main grid -->
+</main>
+
+<!-- ═══════════════════════════════════════════════════════════
+     JAVASCRIPT — All Logic Inline
+═══════════════════════════════════════════════════════════════ -->
+<script>
+'use strict';
+
+/* ─────────────────────────────────────────────────────────────
+   DATABASE
+───────────────────────────────────────────────────────────────*/
+const DB_KEY = 'expo_ultra_db_v3';
+let db = [];
+try {
+    const raw = localStorage.getItem(DB_KEY);
+    db = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(db)) db = [];
+} catch { db = []; }
+
+/* ─────────────────────────────────────────────────────────────
+   TESSERACT WORKER — Pre-warmed singleton
+───────────────────────────────────────────────────────────────*/
+let tWorker = null;
+let workerReady = false;
+
+async function initWorker() {
+    try {
+        setEngineStatus('init', 'Initializing OCR…');
+        tWorker = await Tesseract.createWorker('eng');
+        await tWorker.setParameters({
+            tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 -.:/&\'(),#@|+',
+            tessedit_pageseg_mode: '6',   // Uniform block of text
+        });
+        workerReady = true;
+        setEngineStatus('active', 'OCR Engine Ready');
+        console.log('[OCR] Worker pre-warmed ✓');
+    } catch (e) {
+        console.warn('[OCR] Worker init fallback:', e);
+        setEngineStatus('offline', 'OCR Fallback Mode');
+    }
+}
+
+function setEngineStatus(state, label) {
+    const dot   = document.getElementById('engineDot');
+    const lbl   = document.getElementById('engineLabel');
+    const badge = document.getElementById('engineStatus');
+    if (!dot || !lbl || !badge) return;
+    lbl.textContent = label;
+    badge.classList.remove('hidden');
+    dot.className = 'status-dot';
+    if (state === 'active')  { dot.classList.add('status-active');  }
+    else if (state === 'init') { dot.classList.add('status-init');   }
+    else                     { dot.classList.add('status-offline'); }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   CAMERA INITIALISATION
+───────────────────────────────────────────────────────────────*/
+const video  = document.getElementById('videoFeed');
+const canvas = document.getElementById('processCanvas');
+
+async function initCamera() {
+    if (!navigator.mediaDevices?.getUserMedia) {
+        setCameraStatus('UNSUPPORTED', 'offline');
+        return;
+    }
+    // Try highest resolution first, then fall back
+    const constraints = [
+        { video: { facingMode: { ideal: 'environment' }, width: { ideal: 3840 }, height: { ideal: 2160 } }, audio: false },
+        { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false },
+        { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 }  }, audio: false },
+        { video: true, audio: false },
+    ];
+    for (const c of constraints) {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia(c);
+            video.srcObject = stream;
+            setCameraStatus('CAMERA ACTIVE', 'active');
+            return;
+        } catch {}
+    }
+    setCameraStatus('CAMERA OFFLINE', 'offline');
+}
+
+function setCameraStatus(text, state) {
+    const el  = document.getElementById('cameraStatus');
+    const dot = document.getElementById('camDot');
+    const bg  = document.getElementById('cameraStatusBadge');
+    if (!el) return;
+    el.textContent = text;
+    dot.className = 'status-dot';
+    bg.removeAttribute('style');
+    if (state === 'active') {
+        dot.classList.add('status-active');
+        bg.style.cssText = 'background:rgba(16,185,129,0.12);border-color:rgba(16,185,129,0.3);color:#10b981;';
+    } else if (state === 'offline') {
+        dot.classList.add('status-offline');
+        bg.style.cssText = 'background:rgba(239,68,68,0.12);border-color:rgba(239,68,68,0.3);color:#ef4444;';
+    } else {
+        dot.classList.add('status-init');
+        bg.style.cssText = 'background:rgba(245,158,11,0.12);border-color:rgba(245,158,11,0.3);color:#fbbf24;';
+    }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   IMAGE PREPROCESSING PIPELINE
+   Layer 1: Adaptive Grayscale + Contrast Stretch
+   Layer 2: 3×3 Unsharp Mask Sharpening Convolution
+───────────────────────────────────────────────────────────────*/
+function preprocess(ctx, w, h) {
+    /* ── Layer 1: Grayscale + Adaptive Contrast ── */
+    const imgData = ctx.getImageData(0, 0, w, h);
+    const d = imgData.data;
+    const n = d.length;
+
+    // Step 1: Compute luminance values
+    const lum = new Float32Array(n / 4);
+    for (let i = 0, j = 0; i < n; i += 4, j++) {
+        lum[j] = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+    }
+
+    // Step 2: Min-Max normalization for adaptive contrast stretch
+    let minL = 255, maxL = 0;
+    for (let i = 0; i < lum.length; i++) {
+        if (lum[i] < minL) minL = lum[i];
+        if (lum[i] > maxL) maxL = lum[i];
+    }
+    const range = maxL - minL || 1;
+
+    // Step 3: Apply stretched grayscale
+    for (let i = 0, j = 0; i < n; i += 4, j++) {
+        const stretched = ((lum[j] - minL) / range) * 255;
+        // Gentle gamma for light cards (boosts dark ink)
+        const gamma = stretched > 128 ? stretched : Math.pow(stretched / 255, 0.88) * 255;
+        const v = Math.min(255, Math.max(0, gamma));
+        d[i] = d[i + 1] = d[i + 2] = v;
+        d[i + 3] = 255;
+    }
+    ctx.putImageData(imgData, 0, 0);
+
+    /* ── Layer 2: Unsharp Mask Sharpening ── */
+    try {
+        const src = ctx.getImageData(0, 0, w, h);
+        const dst = ctx.createImageData(w, h);
+        const s = src.data, dt = dst.data;
+        // 3×3 sharpening kernel (edge emphasis)
+        const K = [0, -0.25, 0, -0.25, 2.0, -0.25, 0, -0.25, 0];
+        for (let y = 1; y < h - 1; y++) {
+            for (let x = 1; x < w - 1; x++) {
+                const o = (y * w + x) * 4;
+                let v = 0;
+                for (let ky = -1; ky <= 1; ky++) {
+                    for (let kx = -1; kx <= 1; kx++) {
+                        const so = ((y + ky) * w + (x + kx)) * 4;
+                        v += s[so] * K[(ky + 1) * 3 + (kx + 1)];
+                    }
+                }
+                const clamped = Math.min(255, Math.max(0, v));
+                dt[o] = dt[o + 1] = dt[o + 2] = clamped;
+                dt[o + 3] = 255;
+            }
+        }
+        ctx.putImageData(dst, 0, 0);
+    } catch {}
+}
+
+/* ─────────────────────────────────────────────────────────────
+   CAPTURE FROM LIVE CAMERA (Full reticle, not aggressive crop)
+───────────────────────────────────────────────────────────────*/
+async function captureAndScan() {
+    if (!video.srcObject || video.videoWidth === 0) {
+        alert("Camera is not active. Please use 'Upload Image' instead.");
+        return;
+    }
+    const vw = video.videoWidth, vh = video.videoHeight;
+
+    // Crop to 86% × 74% matching the reticle overlay
+    const cx = Math.round(vw * 0.07), cy = Math.round(vh * 0.13);
+    const cw = Math.round(vw * 0.86), ch = Math.round(vh * 0.74);
+
+    // Upscale to ≥1800px for OCR clarity
+    const tw = Math.max(1800, cw);
+    const th = Math.round((ch / cw) * tw);
+
+    canvas.width  = tw;
+    canvas.height = th;
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(video, cx, cy, cw, ch, 0, 0, tw, th);
+    preprocess(ctx, tw, th);
+    await runOCR(canvas.toDataURL('image/png'));
+}
+
+/* ─────────────────────────────────────────────────────────────
+   HANDLE UPLOADED IMAGE
+───────────────────────────────────────────────────────────────*/
+async function handleManualUpload(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async ev => {
+        const img = new Image();
+        img.onload = async () => {
+            const tw = Math.max(1800, img.width);
+            const th = Math.round((img.height / img.width) * tw);
+            canvas.width = tw; canvas.height = th;
+            const ctx = canvas.getContext('2d');
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            ctx.drawImage(img, 0, 0, tw, th);
+            preprocess(ctx, tw, th);
+            await runOCR(canvas.toDataURL('image/png'));
+        };
+        img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+}
+
+/* ─────────────────────────────────────────────────────────────
+   OCR RUNNER
+───────────────────────────────────────────────────────────────*/
+async function runOCR(dataUrl) {
+    const loader = document.getElementById('ocrLoader');
+    loader.classList.remove('hidden');
+    setEngineStatus('init', 'Scanning…');
+    try {
+        let rawText = '';
+        if (workerReady && tWorker) {
+            const res = await tWorker.recognize(dataUrl);
+            rawText = res.data.text;
+        } else {
+            // Fallback: one-shot worker (no pre-warmed singleton)
+            const res = await Tesseract.recognize(dataUrl, 'eng', {
+                tessedit_pageseg_mode: '6',
+                tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 -.:/&\'(),#@|+',
+            });
+            rawText = res.data.text;
+        }
+        parseAndFill(rawText);
+        setEngineStatus('active', 'OCR Engine Ready');
+    } catch (err) {
+        console.error('[OCR] Error:', err);
+        alert('OCR failed. Please verify and type the details manually.');
+        setEngineStatus('active', 'OCR Engine Ready');
+    } finally {
+        loader.classList.add('hidden');
+    }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   STRING UTILITIES
+───────────────────────────────────────────────────────────────*/
+function clean(s) {
+    if (!s) return '';
+    return s
+        .replace(/[^\x20-\x7E]/g, ' ')          // Strip non-ASCII
+        .replace(/^[\s;:.,\-_~|=><]+|[\s;:.,\-_~|=><]+$/g, '') // Strip junk prefix/suffix
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+}
+
+function esc(s) {
+    if (!s) return '';
+    return String(s)
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+}
+
+/* ─────────────────────────────────────────────────────────────
+   MULTI-LAYER PARSER
+   Designed specifically for Indian School ID Cards
+───────────────────────────────────────────────────────────────*/
+function parseAndFill(raw) {
+    if (!raw) return;
+
+    // Tokenize lines: clean, filter purely numeric / symbol-only junk
+    const lines = raw.split('\n')
+        .map(l => clean(l))
+        .filter(l => l.length >= 2 && !/^[\d\s.\-:/]+$/.test(l));
+
+    renderOcrLines(lines);
+
+    let name = '', school = '', section = '';
+
+    /* ── Noise patterns to skip ── */
+    const SKIP_PATTERN = /^(student\s*identity|identity\s*card|student\s*id\s*card|govt\.?\s*of|department\s*of|affiliated|valid\s*upto|blood\s*group|dob|date\s*of|emergency|contact|phone|mobile|address|pincode|pin\s*code|academic\s*year|session|roll\s*no|admission|regd|reg\s*no|scan|qr)/i;
+
+    /* ══════════════════════
+       1. SCHOOL EXTRACTION
+    ══════════════════════*/
+    // Institutional keywords
+    const SCHOOL_KW = [
+        'matriculation','matric','higher secondary','hr sec','hr.sec','hss','ghss',
+        'g.h.s.s','h.s.s','vidyalaya','vidyashram','school','academy','high school',
+        'college','institution','institute','kendra','convent','cbse','icse',
+        'public school','don bosco','saint','st\.','bharathi','saraswathi',
+        'vivekananda','mission','campus','dav','model','kendriya','international',
+        'govt\.','government','montessori','nursery','primary'
+    ];
+    const schoolRgx = new RegExp(SCHOOL_KW.join('|'), 'i');
+
+    // Priority A: Line contains school keyword AND isn't a metadata label
+    for (const line of lines) {
+        if (SKIP_PATTERN.test(line)) continue;
+        if (/^(name|student|std|class|sec|dob|blood|roll|adm)/i.test(line) && line.length < 10) continue;
+        if (schoolRgx.test(line)) {
+            let s = line
+                .replace(/^(school\s*name|name\s*of\s*(the\s*)?school|institution\s*name|inst\s*name|col\.?\s*name)\s*[:;.\-=]+\s*/gi, '')
+                .replace(/,?\s*(puducherry|pondicherry|chennai|coimbatore|madurai|bengaluru|bangalore|tamil\s*nadu|kerala|karnataka|andhra|telangana|india)[^,]*/gi, '')
+                .replace(/\b\d{6}\b/g, '') // pincode
+                .replace(/\bph\b.*|phone.*/i, '');
+            s = clean(s);
+            if (s.length >= 4) { school = s; break; }
+        }
+    }
+
+    // Priority B: Top 3 lines that aren't metadata
+    if (!school) {
+        for (let i = 0; i < Math.min(3, lines.length); i++) {
+            const l = lines[i];
+            if (SKIP_PATTERN.test(l)) continue;
+            if (/^(name|student|std|class|sec|dob|blood|roll|adm)/i.test(l) && l.length < 10) continue;
+            if (l.length >= 4 && l.length <= 70) { school = clean(l); break; }
+        }
+    }
+
+    /* ══════════════════════
+       2. NAME EXTRACTION
+    ══════════════════════*/
+    // Primary: Explicit label patterns
+    const NAME_LABELS = /^(student'?s?\s*name|name\s*of\s*(the\s*)?(student|candidate|pupil)|candidate\s*name|pupil\s*name|name\s*of\s*pupil|name)\s*[:;.\-~|=_\s]+/i;
+
+    for (const line of lines) {
+        if (NAME_LABELS.test(line)) {
+            let n = line
+                .replace(NAME_LABELS, '')
+                .replace(/^(mr\.|ms\.|master\s+|selvi\s+|kumari\s+|kum\.\s+|mrs\.)\s*/i, '')
+                .replace(/\s+(std|class|sec|section|dob|blood|roll|adm|reg|regd|grade).*$/i, '');
+            n = clean(n);
+            if (n.length >= 2 && !schoolRgx.test(n)) { name = n; break; }
+        }
+    }
+
+    // Secondary: Standard Indian name pattern with initial (e.g. "S. PAVITHRA", "K. RAGHAVAN", "M. SANJAY KUMAR")
+    if (!name) {
+        const nameRgx = /^([A-Z]\.?\s+){1,2}[A-Z][a-zA-Z]{2,20}(\s+[A-Z][a-zA-Z]{2,15})?$|^[A-Z][a-zA-Z]{2,20}(\s+[A-Z][a-zA-Z]{1,15})+\s+[A-Z]\.?$/;
+        for (const line of lines) {
+            if (line === school || SKIP_PATTERN.test(line)) continue;
+            if (/^(std|class|sec|dob|blood|roll|adm|phone|mobile)/i.test(line)) continue;
+            if (schoolRgx.test(line)) continue;
+            const trimmed = line.replace(/^(mr\.|ms\.|master\s+|selvi\s+|kumari\s+|kum\.\s+|mrs\.)\s*/i, '');
+            if (nameRgx.test(trimmed) && trimmed.length >= 3 && trimmed.length <= 35) {
+                name = clean(trimmed);
+                break;
+            }
+        }
+    }
+
+    // Tertiary: Best uppercase candidate (not school, not noise)
+    if (!name) {
+        for (const line of lines) {
+            if (line === school || SKIP_PATTERN.test(line)) continue;
+            if (/^(std|class|sec|dob|blood|roll|adm|phone|mobile|grade|stream|valid)/i.test(line)) continue;
+            if (schoolRgx.test(line)) continue;
+            if (line.length >= 3 && line.length <= 32) { name = clean(line); break; }
+        }
+    }
+
+    /* ══════════════════════
+       3. SECTION EXTRACTION
+    ══════════════════════*/
+    // Pattern covers: 11-A, XI-A, 10 B, 12th A, IX-C, 11-CS, 12-BIO, 10th - A1, Class XII-B
+    const SEC_RGX = /\b(1[0-2]|[1-9]|XII|XI|X|IX|VIII|VII|VI|V|IV|III|II|I)(?:ST|ND|RD|TH)?[\s\/\-\:'\"]*([A-D]|[A-D][1-9]?|BIO|CS|MATHS|COMMERCE|COMP|SCI|ART|ARTS|HUM)\b/i;
+
+    for (const line of lines) {
+        if (/std|class|section|sec|grade|standard/i.test(line)) {
+            const m = line.match(SEC_RGX);
+            if (m) { section = `${m[1].toUpperCase()}-${m[2].toUpperCase()}`; break; }
+            // Plain extraction from label
+            let s = line.replace(/^(standard|std|class|section|sec|grade)\s*[:;.\-~|=\s]+/i, '');
+            s = clean(s);
+            if (s.length >= 1 && s.length <= 12) { section = s.toUpperCase(); break; }
+        }
+    }
+    // Global fallback scan
+    if (!section) {
+        const m = raw.match(SEC_RGX);
+        if (m) section = `${m[1].toUpperCase()}-${m[2].toUpperCase()}`;
+    }
+
+    /* ── Populate UI ── */
+    const nameEl   = document.getElementById('inputStudentName');
+    const schoolEl = document.getElementById('inputSchoolName');
+    const secEl    = document.getElementById('inputSection');
+    nameEl.value   = name   || '';
+    schoolEl.value = school || '';
+    secEl.value    = section || '';
+
+    // Confidence badges
+    const setTag = (id, found) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.innerHTML = found
+            ? `<span style="color:#10b981;font-size:10px;"><i class="fa-solid fa-circle-check"></i> Detected</span>`
+            : `<span style="color:#f59e0b;font-size:10px;"><i class="fa-solid fa-triangle-exclamation"></i> Verify</span>`;
+    };
+    setTag('nameTag',   !!name);
+    setTag('schoolTag', !!school);
+    setTag('secTag',    !!section);
+
+    if (name)   nameEl.classList.add('detected');
+    if (school) schoolEl.classList.add('detected');
+    if (section) secEl.classList.add('detected');
+}
+
+/* ─────────────────────────────────────────────────────────────
+   OCR INSPECTOR PANEL
+───────────────────────────────────────────────────────────────*/
+function renderOcrLines(lines) {
+    const c = document.getElementById('ocrLinesList');
+    if (!c) return;
+    if (!lines || !lines.length) {
+        c.innerHTML = '<span class="text-slate-600 italic">No text found.</span>';
+        return;
+    }
+    c.innerHTML = '';
+    lines.forEach((line, i) => {
+        const row = document.createElement('div');
+        row.className = 'ocr-line-item';
+        row.innerHTML = `
+            <span class="truncate text-slate-300 flex-1 text-[11px]">${i+1}. ${esc(line)}</span>
+            <div class="flex gap-1 shrink-0">
+                <button type="button" onclick="fillField('inputStudentName','${esc(line)}')"
+                    class="px-1.5 py-0.5 rounded text-[9px] font-bold transition"
+                    style="background:rgba(99,102,241,0.2);color:#a5b4fc;border:1px solid rgba(99,102,241,0.3);">Name</button>
+                <button type="button" onclick="fillField('inputSchoolName','${esc(line)}')"
+                    class="px-1.5 py-0.5 rounded text-[9px] font-bold transition"
+                    style="background:rgba(6,182,212,0.2);color:#67e8f9;border:1px solid rgba(6,182,212,0.3);">School</button>
+                <button type="button" onclick="fillField('inputSection','${esc(line)}')"
+                    class="px-1.5 py-0.5 rounded text-[9px] font-bold transition"
+                    style="background:rgba(245,158,11,0.2);color:#fcd34d;border:1px solid rgba(245,158,11,0.3);">Sec</button>
+            </div>
+        `;
+        c.appendChild(row);
+    });
+}
+
+function fillField(id, val) {
+    const el = document.getElementById(id);
+    if (el) { el.value = val; el.focus(); }
+}
+
+function toggleOcrPanel() {
+    const p  = document.getElementById('ocrPanel');
+    const ic = document.getElementById('ocrPanelIcon');
+    if (!p) return;
+    const hidden = p.classList.toggle('hidden');
+    ic.style.transform = hidden ? 'rotate(0deg)' : 'rotate(180deg)';
+}
+
+/* ─────────────────────────────────────────────────────────────
+   SAVE RECORD
+───────────────────────────────────────────────────────────────*/
+function saveStudentRecord(e) {
+    e.preventDefault();
+    const name    = clean(document.getElementById('inputStudentName').value);
+    const school  = clean(document.getElementById('inputSchoolName').value);
+    const section = clean(document.getElementById('inputSection').value);
+    if (!name || !school) { alert('Student Name and School Name are required.'); return; }
+
+    const record = {
+        id: Date.now(),
+        name, school,
+        section: section || 'N/A',
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+    db.unshift(record);
+    persist();
+
+    const schoolCount = db.filter(r => r.school.toLowerCase() === school.toLowerCase()).length;
+    const toast = document.getElementById('schoolToast');
+    toast.className = 'rounded-xl p-3 toast-anim';
+    toast.style.cssText = 'background:rgba(6,60,30,0.8);border:1px solid rgba(16,185,129,0.4);';
+    toast.innerHTML = `
+        <div class="flex items-center gap-3">
+            <div class="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style="background:rgba(16,185,129,0.2);">
+                <i class="fa-solid fa-circle-check text-emerald-400 text-lg"></i>
+            </div>
+            <div class="min-w-0">
+                <p class="text-white font-bold text-sm leading-tight truncate">Entry saved! ✓</p>
+                <p class="text-emerald-300 text-[11px] font-medium mt-0.5">
+                    ${esc(school)} Total:
+                    <span class="text-amber-300 font-black">${schoolCount} Students</span> so far.
+                </p>
+            </div>
+        </div>
+    `;
+    toast.classList.remove('hidden');
+    resetForm();
+}
+
+/* ─────────────────────────────────────────────────────────────
+   DELETE RECORD
+───────────────────────────────────────────────────────────────*/
+function deleteStudent(id) {
+    const r = db.find(s => s.id === id);
+    if (!r) return;
+    if (!confirm(`Delete "${r.name}" from ${r.school}?`)) return;
+    db = db.filter(s => s.id !== id);
+    persist();
+}
+
+/* ─────────────────────────────────────────────────────────────
+   PERSIST + RESET
+───────────────────────────────────────────────────────────────*/
+function persist() {
+    localStorage.setItem(DB_KEY, JSON.stringify(db));
+    updateDashboard();
+}
+
+function resetForm() {
+    document.getElementById('attendanceForm').reset();
+    ['nameTag','schoolTag','secTag'].forEach(id => { const el = document.getElementById(id); if(el) el.innerHTML=''; });
+    ['inputStudentName','inputSchoolName','inputSection'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.remove('detected');
+    });
+}
+
+/* ─────────────────────────────────────────────────────────────
+   DASHBOARD UPDATE
+───────────────────────────────────────────────────────────────*/
+function updateDashboard(query = '') {
+    const q = query.toLowerCase().trim();
+    const filtered = q
+        ? db.filter(r => r.name.toLowerCase().includes(q) || r.school.toLowerCase().includes(q) || (r.section || '').toLowerCase().includes(q))
+        : db;
+
+    /* Aggregate school counts */
+    const schoolMap = {};
+    db.forEach(r => { const k = r.school.trim(); schoolMap[k] = (schoolMap[k] || 0) + 1; });
+    const schools = Object.entries(schoolMap).map(([school, count]) => ({ school, count })).sort((a,b) => b.count - a.count);
+    const total = db.length;
+
+    /* Stat cards */
+    setText('statTotalStudents', total);
+    setText('statTotalSchools',  schools.length);
+    setText('statTopSchool',     schools.length ? `${schools[0].school} (${schools[0].count})` : '—');
+    setText('badgeSchoolCount',  schools.length);
+    setText('badgeStudentCount', total);
+
+    /* School table */
+    const stb = document.getElementById('schoolTableBody');
+    const sem = document.getElementById('emptySchoolMsg');
+    stb.innerHTML = '';
+    if (!schools.length) {
+        sem.classList.remove('hidden');
+    } else {
+        sem.classList.add('hidden');
+        schools.forEach((item, i) => {
+            const share = total ? ((item.count / total) * 100).toFixed(1) : 0;
+            const tr = document.createElement('tr');
+            tr.className = 'table-row border-b border-slate-800/60';
+            tr.innerHTML = `
+                <td class="p-3 text-slate-500 font-mono font-bold text-xs">${i+1}</td>
+                <td class="p-3 font-semibold text-slate-200 text-xs">${esc(item.school)}</td>
+                <td class="p-3 text-right">
+                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg font-bold text-[11px]"
+                          style="background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:#a5b4fc;">
+                        ${item.count}
+                    </span>
+                </td>
+                <td class="p-3 text-right">
+                    <div class="flex items-center justify-end gap-2">
+                        <div class="w-16 h-1 rounded-full bg-slate-800 overflow-hidden">
+                            <div class="progress-bar" style="width:${share}%"></div>
+                        </div>
+                        <span class="text-[10px] text-slate-400 font-mono w-8">${share}%</span>
+                    </div>
+                </td>
+            `;
+            stb.appendChild(tr);
+        });
+    }
+
+    /* Student table */
+    const sdtb = document.getElementById('studentTableBody');
+    const sdem = document.getElementById('emptyStudentMsg');
+    sdtb.innerHTML = '';
+    if (!filtered.length) {
+        sdem.classList.remove('hidden');
+    } else {
+        sdem.classList.add('hidden');
+        filtered.forEach((item, i) => {
+            const tr = document.createElement('tr');
+            tr.className = 'table-row border-b border-slate-800/60';
+            tr.innerHTML = `
+                <td class="p-3 text-slate-500 font-mono font-bold text-[11px]">${i+1}</td>
+                <td class="p-3 font-semibold text-slate-100 text-xs">${esc(item.name)}</td>
+                <td class="p-3 text-slate-400 text-xs max-w-[140px] truncate">${esc(item.school)}</td>
+                <td class="p-3 text-[11px] font-mono font-bold" style="color:#22d3ee;">${esc(item.section)}</td>
+                <td class="p-3 text-slate-500 text-[11px] font-mono">${esc(item.timestamp)}</td>
+                <td class="p-3 text-center">
+                    <button onclick="deleteStudent(${item.id})" title="Delete"
+                        class="w-7 h-7 rounded-lg flex items-center justify-center mx-auto transition text-rose-400 hover:text-white"
+                        style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);">
+                        <i class="fa-solid fa-trash-can text-[11px]"></i>
+                    </button>
+                </td>
+            `;
+            sdtb.appendChild(tr);
+        });
+    }
+}
+
+function setText(id, val) { const el = document.getElementById(id); if(el) el.textContent = val; }
+function filterLogs(e) { updateDashboard(e.target.value); }
+
+/* ─────────────────────────────────────────────────────────────
+   TAB SWITCHING
+───────────────────────────────────────────────────────────────*/
+function switchTab(tab) {
+    const show = tab === 'schools' ? 'tabSchools' : 'tabStudents';
+    const hide = tab === 'schools' ? 'tabStudents' : 'tabSchools';
+    const active  = tab === 'schools' ? 'tabBtnSchools' : 'tabBtnStudents';
+    const inactive = tab === 'schools' ? 'tabBtnStudents' : 'tabBtnSchools';
+
+    document.getElementById(show).classList.remove('hidden');
+    document.getElementById(hide).classList.add('hidden');
+    document.getElementById(active).className   = 'tab-active  py-1.5 px-3 rounded-lg font-bold text-xs uppercase tracking-wider transition flex items-center gap-2';
+    document.getElementById(inactive).className = 'tab-inactive py-1.5 px-3 rounded-lg font-bold text-xs uppercase tracking-wider transition flex items-center gap-2';
+}
+
+/* ─────────────────────────────────────────────────────────────
+   PDF EXPORT
+───────────────────────────────────────────────────────────────*/
+function exportToPDF() {
+    if (!db.length) { alert('No records to export.'); return; }
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: 'portrait', format: 'a4' });
+
+    // Header
+    doc.setFillColor(15, 23, 42);
+    doc.rect(0, 0, 210, 36, 'F');
+    doc.setFontSize(16); doc.setTextColor(255,255,255);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Science Expo — Student Attendance Report', 14, 15);
+    doc.setFontSize(8); doc.setTextColor(148,163,184);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Generated: ${new Date().toLocaleString()}  |  Total Students: ${db.length}`, 14, 23);
+
+    // School Summary
+    const schoolMap = {};
+    db.forEach(r => { const k = r.school.trim(); schoolMap[k] = (schoolMap[k] || 0) + 1; });
+    const schools = Object.entries(schoolMap).map(([s,c]) => [s, c, `${((c/db.length)*100).toFixed(1)}%`]).sort((a,b) => b[1]-a[1]);
+
+    doc.setFontSize(11); doc.setTextColor(30,30,30); doc.setFont('helvetica','bold');
+    doc.text('1. School-Wise Summary', 14, 44);
+    doc.autoTable({
+        startY: 47,
+        head: [['School Name','Students','Share %']],
+        body: schools,
+        theme: 'striped',
+        headStyles: { fillColor: [79,70,229], textColor: 255, fontStyle: 'bold', fontSize: 8 },
+        bodyStyles: { fontSize: 8 },
+        alternateRowStyles: { fillColor: [245,245,255] }
+    });
+
+    const y1 = doc.lastAutoTable.finalY + 10;
+    doc.setFontSize(11); doc.setTextColor(30,30,30); doc.setFont('helvetica','bold');
+    doc.text('2. Complete Student Log', 14, y1);
+    doc.autoTable({
+        startY: y1 + 3,
+        head: [['#','Student Name','School Name','Sec.','Time']],
+        body: db.map((r,i) => [i+1, r.name, r.school, r.section, r.timestamp]),
+        theme: 'grid',
+        headStyles: { fillColor: [15,23,42], textColor: 255, fontStyle: 'bold', fontSize: 8 },
+        bodyStyles: { fontSize: 8 },
+        columnStyles: { 0:{cellWidth:8}, 3:{cellWidth:14}, 4:{cellWidth:16} }
+    });
+
+    doc.save(`Science_Expo_Attendance_${Date.now()}.pdf`);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   CLEAR ALL
+───────────────────────────────────────────────────────────────*/
+function clearAllData() {
+    if (!confirm('Delete ALL attendance records? This cannot be undone.')) return;
+    db = [];
+    localStorage.removeItem(DB_KEY);
+    updateDashboard();
+    const toast = document.getElementById('schoolToast');
+    if (toast) toast.classList.add('hidden');
+}
+
+/* ─────────────────────────────────────────────────────────────
+   BOOT
+───────────────────────────────────────────────────────────────*/
+window.addEventListener('DOMContentLoaded', () => {
+    initCamera();
+    initWorker();
+    updateDashboard();
+    // Show initial empty state in school tab
+    const sem = document.getElementById('emptySchoolMsg');
+    if (sem && !db.length) sem.classList.remove('hidden');
+});
+</script>
+</body>
+</html>

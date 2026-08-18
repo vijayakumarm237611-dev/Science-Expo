@@ -1,0 +1,25 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "chrome",
+            "request": "launch",
+            "name": "Launch Expo Scanner (Direct File)",
+            "file": "${workspaceFolder}\\expo_scanner_universal_web\\expo_scanner_web_project\\index.html"
+        },
+        {
+            "type": "chrome",
+            "request": "launch",
+            "name": "Launch Expo Scanner (http://localhost:8000)",
+            "url": "http://localhost:8000",
+            "webRoot": "${workspaceFolder}\\expo_scanner_universal_web\\expo_scanner_web_project"
+        },
+        {
+            "name": "Attach to Chrome",
+            "port": 9222,
+            "request": "attach",
+            "type": "chrome",
+            "webRoot": "${workspaceFolder}\\expo_scanner_universal_web\\expo_scanner_web_project"
+        }
+    ]
+}
